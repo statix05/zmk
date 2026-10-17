@@ -185,6 +185,10 @@ static const struct hid_ops ops = {
 };
 
 static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
+    /* nrfx USB schedules DMA from the caller's pointer. Own the bytes until
+     * hid_int_in_ready releases hid_sem, including stack-backed snapshots. */
+    static uint8_t tx_snapshot[64] __aligned(4);
+    if (!report || len > sizeof(tx_snapshot)) return -EMSGSIZE;
     switch (zmk_usb_get_status()) {
     case USB_DC_SUSPEND:
         return usb_wakeup_request();
@@ -194,8 +198,10 @@ static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
     case USB_DC_UNKNOWN:
         return -ENODEV;
     default:
-        k_sem_take(&hid_sem, K_MSEC(30));
-        int err = hid_int_ep_write(hid_dev, report, len, NULL);
+        int err = k_sem_take(&hid_sem, K_MSEC(30));
+        if (err) return err;
+        memcpy(tx_snapshot, report, len);
+        err = hid_int_ep_write(hid_dev, tx_snapshot, len, NULL);
 
         if (err) {
             k_sem_give(&hid_sem);
@@ -203,6 +209,28 @@ static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
 
         return err;
     }
+}
+
+int zmk_usb_hid_send_keyboard_snapshot(const struct zmk_hid_keyboard_report_body *body) {
+    if (!body) return -EINVAL;
+    if (zmk_usb_get_status() == USB_DC_SUSPEND) {
+        usb_wakeup_request();
+        return -EAGAIN; /* Wake request is not report delivery. */
+    }
+#if IS_ENABLED(CONFIG_ZMK_USB_BOOT)
+    if (hid_protocol != HID_PROTOCOL_REPORT) {
+#if IS_ENABLED(CONFIG_ZMK_HID_REPORT_TYPE_HKRO) && CONFIG_ZMK_HID_KEYBOARD_REPORT_SIZE == HID_BOOT_KEY_LEN
+        return zmk_usb_hid_send_report((const uint8_t *)body, sizeof(*body));
+#else
+        return -ENOTSUP;
+#endif
+    }
+#endif
+    const struct zmk_hid_keyboard_report report = {
+        .report_id = ZMK_HID_REPORT_ID_KEYBOARD,
+        .body = *body,
+    };
+    return zmk_usb_hid_send_report((const uint8_t *)&report, sizeof(report));
 }
 
 int zmk_usb_hid_send_keyboard_report(void) {

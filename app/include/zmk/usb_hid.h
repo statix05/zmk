@@ -9,6 +9,8 @@
 #include <stdint.h>
 
 int zmk_usb_hid_send_keyboard_report(void);
+struct zmk_hid_keyboard_report_body;
+int zmk_usb_hid_send_keyboard_snapshot(const struct zmk_hid_keyboard_report_body *body);
 int zmk_usb_hid_send_consumer_report(void);
 #if IS_ENABLED(CONFIG_ZMK_POINTING)
 int zmk_usb_hid_send_mouse_report(void);

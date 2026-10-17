@@ -335,6 +335,19 @@ void send_keyboard_report_callback(struct k_work *work) {
 
 K_WORK_DEFINE(hog_keyboard_work, send_keyboard_report_callback);
 
+struct k_work_q *zmk_hog_work_queue(void) { return &hog_work_q; }
+
+int zmk_hog_send_keyboard_snapshot(struct bt_conn *conn,
+                                   const struct zmk_hid_keyboard_report_body *report) {
+    if (!conn || !report) return -EINVAL;
+    struct bt_gatt_notify_params params = {
+        .attr = &hog_svc.attrs[5],
+        .data = report,
+        .len = sizeof(*report),
+    };
+    return bt_gatt_notify_cb(conn, &params);
+}
+
 int zmk_hog_send_keyboard_report(struct zmk_hid_keyboard_report_body *report) {
     int err = k_msgq_put(&zmk_hog_keyboard_msgq, report, K_MSEC(100));
     if (err) {

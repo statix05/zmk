@@ -194,7 +194,7 @@ static int send_keyboard_report(void) {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_keyboard_report *keyboard_report = zmk_hid_get_keyboard_report();
-        int err = zmk_hog_send_keyboard_report(&keyboard_report->body);
+        int err = zmk_hog_send_keyboard_report_to_profile(&keyboard_report->body, endpoint.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }
@@ -231,7 +231,7 @@ static int send_consumer_report(void) {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_consumer_report *consumer_report = zmk_hid_get_consumer_report();
-        int err = zmk_hog_send_consumer_report(&consumer_report->body);
+        int err = zmk_hog_send_consumer_report_to_profile(&consumer_report->body, endpoint.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }
@@ -283,7 +283,7 @@ int zmk_endpoint_send_mouse_report() {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_mouse_report *mouse_report = zmk_hid_get_mouse_report();
-        int err = zmk_hog_send_mouse_report(&mouse_report->body);
+        int err = zmk_hog_send_mouse_report_to_profile(&mouse_report->body, endpoint.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }

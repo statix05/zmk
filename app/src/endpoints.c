@@ -173,6 +173,10 @@ struct zmk_endpoint_instance zmk_endpoint_get_selected(void) { return current_in
 
 bool zmk_endpoint_is_connected(void) { return current_instance.transport != ZMK_TRANSPORT_NONE; }
 
+K_MUTEX_DEFINE(endpoint_hid_mutex);
+void zmk_endpoint_hid_lock(void) { k_mutex_lock(&endpoint_hid_mutex, K_FOREVER); }
+void zmk_endpoint_hid_unlock(void) { k_mutex_unlock(&endpoint_hid_mutex); }
+
 static int send_keyboard_report(void) {
     switch (current_instance.transport) {
     case ZMK_TRANSPORT_NONE:
@@ -194,7 +198,7 @@ static int send_keyboard_report(void) {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_keyboard_report *keyboard_report = zmk_hid_get_keyboard_report();
-        int err = zmk_hog_send_keyboard_report_to_profile(&keyboard_report->body, endpoint.ble.profile_index);
+        int err = zmk_hog_send_keyboard_report_to_profile(&keyboard_report->body, current_instance.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }
@@ -231,7 +235,7 @@ static int send_consumer_report(void) {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_consumer_report *consumer_report = zmk_hid_get_consumer_report();
-        int err = zmk_hog_send_consumer_report_to_profile(&consumer_report->body, endpoint.ble.profile_index);
+        int err = zmk_hog_send_consumer_report_to_profile(&consumer_report->body, current_instance.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }
@@ -247,7 +251,7 @@ static int send_consumer_report(void) {
     return -ENOTSUP;
 }
 
-int zmk_endpoint_send_report(uint16_t usage_page) {
+static int endpoint_send_report_unlocked(uint16_t usage_page) {
     LOG_DBG("usage page 0x%02X", usage_page);
     switch (usage_page) {
     case HID_USAGE_KEY:
@@ -261,8 +265,15 @@ int zmk_endpoint_send_report(uint16_t usage_page) {
     return -ENOTSUP;
 }
 
+int zmk_endpoint_send_report(uint16_t usage_page) {
+    zmk_endpoint_hid_lock();
+    int rc = endpoint_send_report_unlocked(usage_page);
+    zmk_endpoint_hid_unlock();
+    return rc;
+}
+
 #if IS_ENABLED(CONFIG_ZMK_POINTING)
-int zmk_endpoint_send_mouse_report() {
+static int endpoint_send_mouse_unlocked(void) {
     switch (current_instance.transport) {
     case ZMK_TRANSPORT_NONE:
         return 0;
@@ -283,7 +294,7 @@ int zmk_endpoint_send_mouse_report() {
     case ZMK_TRANSPORT_BLE: {
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         struct zmk_hid_mouse_report *mouse_report = zmk_hid_get_mouse_report();
-        int err = zmk_hog_send_mouse_report_to_profile(&mouse_report->body, endpoint.ble.profile_index);
+        int err = zmk_hog_send_mouse_report_to_profile(&mouse_report->body, current_instance.ble.profile_index);
         if (err) {
             LOG_ERR("FAILED TO SEND OVER HOG: %d", err);
         }
@@ -297,6 +308,12 @@ int zmk_endpoint_send_mouse_report() {
 
     LOG_ERR("Unhandled endpoint transport %d", current_instance.transport);
     return -ENOTSUP;
+}
+int zmk_endpoint_send_mouse_report(void) {
+    zmk_endpoint_hid_lock();
+    int rc = endpoint_send_mouse_unlocked();
+    zmk_endpoint_hid_unlock();
+    return rc;
 }
 #endif // IS_ENABLED(CONFIG_ZMK_POINTING)
 
@@ -469,6 +486,7 @@ static int zmk_endpoints_init(void) {
 }
 
 void zmk_endpoint_clear_reports(void) {
+    zmk_endpoint_hid_lock();
     zmk_hid_keyboard_clear();
     zmk_hid_consumer_clear();
 #if IS_ENABLED(CONFIG_ZMK_POINTING)
@@ -477,9 +495,14 @@ void zmk_endpoint_clear_reports(void) {
 
     zmk_endpoint_send_report(HID_USAGE_KEY);
     zmk_endpoint_send_report(HID_USAGE_CONSUMER);
+#if IS_ENABLED(CONFIG_ZMK_POINTING)
+    zmk_endpoint_send_mouse_report();
+#endif
+    zmk_endpoint_hid_unlock();
 }
 
 static void update_current_endpoint(void) {
+    zmk_endpoint_hid_lock();
     struct zmk_endpoint_instance new_instance = get_selected_instance();
 
     if (!zmk_endpoint_instance_eq(new_instance, current_instance)) {
@@ -494,6 +517,7 @@ static void update_current_endpoint(void) {
 
         raise_zmk_endpoint_changed((struct zmk_endpoint_changed){.endpoint = current_instance});
     }
+    zmk_endpoint_hid_unlock();
 }
 
 static int endpoint_listener(const zmk_event_t *eh) {

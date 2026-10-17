@@ -87,6 +87,10 @@ struct zmk_endpoint_instance zmk_endpoint_get_preferred(void);
  */
 struct zmk_endpoint_instance zmk_endpoint_get_selected(void);
 
+/* Serialize transient HID snapshots with ordinary reports and endpoint switches. */
+void zmk_endpoint_hid_lock(void);
+void zmk_endpoint_hid_unlock(void);
+
 /**
  * Returns whether the keyboard is connected to an endpoint.
  *
